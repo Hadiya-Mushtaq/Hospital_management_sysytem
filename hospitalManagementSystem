@@ -1,0 +1,676 @@
+
+#include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <ostream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+using namespace std;
+
+class Patient
+{
+    public:
+
+    int id;
+    string _name;
+    string _dob;
+    vector<string> _med_conditions;
+    vector<string> _treatments;
+    int _age;
+
+    Patient(int id, const string &name, const string &dob, const vector<string> &med_conditions,
+            const vector<string> &treatments, int age)
+        : id(id), _name(name), _dob(dob), _med_conditions(med_conditions), _treatments(treatments), _age(age)
+    {
+    }
+
+    void add_med_condition(const string &med_condition)
+    {
+        if (find(_med_conditions.begin(), _med_conditions.end(), med_condition) != _med_conditions.end())
+        {
+            cout << "Patient already has this medical condition" << endl;
+            return;
+        }
+        _med_conditions.push_back(med_condition);
+    }
+
+    void add_treatment(const string &treatment)
+    {
+        if (find(_treatments.begin(), _treatments.end(), treatment) != _treatments.end())
+        {
+            cout << "Patient is already going through this treatment" << endl;
+            return;
+        }
+        _treatments.push_back(treatment);
+    }
+
+    void remove_med_condition(const string &med_condition)
+    {
+        auto it = find(_med_conditions.begin(), _med_conditions.end(), med_condition);
+        if (it == _med_conditions.end())
+        {
+            cout << "Patient does not have this medical condition" << endl;
+            return;
+        }
+        _med_conditions.erase(it);
+    }
+};
+
+class Patient_records
+{
+    string _filename;
+    unordered_map<string, shared_ptr<Patient>> _patients;                   //Hash table
+    unordered_map<int, shared_ptr<Patient>> _patients_id;                        //Hash table
+    unordered_map<string, vector<shared_ptr<Patient>>> _med_patients;  //Hash table
+    map<int, vector<shared_ptr<Patient>>> _age_group;                       //Balanced Binary tree
+    vector<shared_ptr<Patient>> _all_patients;                                   //Vector
+
+public:
+    Patient_records(const string &filename) : _filename(filename) {}
+
+    shared_ptr<Patient> add_patient(const int id, const string &name, const string &dob,
+                                         const vector<string> &med_conditions, const vector<string> &treatments,
+                                         int age)
+    {
+        if (_patients_id.find(id) != _patients_id.end())
+        {
+            cout << "Patient with ID " << id << " already exists." << endl;
+            return _patients_id[id];
+        }
+
+        shared_ptr<Patient> patient = make_shared<Patient>(id, name, dob, med_conditions, treatments, age);
+        _patients[name] = patient;
+        _patients_id[id] = patient;
+        _age_group[age].push_back(patient);
+        _all_patients.push_back(patient);
+
+        for (const auto &med_condition : med_conditions)
+        {
+            _med_patients[med_condition].push_back(patient);
+        }
+        return patient;
+    }
+
+    bool load_from_file()
+    {
+        // Order: id, name, dob, age, med_conditions, treatments
+        // Names will be enclosed in double quotes
+        // Med conditions and treatments will be comma separated
+        // Other fields will be separated by tab space
+        ifstream file(_filename);
+
+        if (!file.is_open())
+        {
+            cout << "Could not open file " << _filename << " for reading records" << '\n';
+            return false;
+        }
+
+        string line;
+        while (getline(file, line))
+        {
+            // We wont use string stream here as we have to handle double quotes
+            string id, name, dob, age;
+            vector<string> med_conditions, treatments;
+
+            istringstream iss(line);
+            getline(iss, id, '\t');
+            getline(iss, name, '\t');
+            getline(iss, dob, '\t');
+            getline(iss, age, '\t');
+            string med_conditions_str, treatments_str;
+            getline(iss, med_conditions_str, '\t');
+            getline(iss, treatments_str, '\t');
+
+            // Remove double quotes
+            name.erase(remove(name.begin(), name.end(), '\"'), name.end());
+
+            // Use commas as delimiter in med conditions and treatments
+            istringstream med_conditions_iss(med_conditions_str);
+            string med_condition;
+            while (getline(med_conditions_iss, med_condition, ','))
+            {
+                med_conditions.push_back(med_condition);
+            }
+            istringstream treatments_iss(treatments_str);
+            string treatment;
+            while (getline(treatments_iss, treatment, ','))
+            {
+                treatments.push_back(treatment);
+            }
+            int age_int = stoi(age);
+            // cout << "Age: " << age << '\n';
+            int int_id = stoi(id);
+            // cout << "ID: " << id << '\n';
+            add_patient(int_id, name, dob, med_conditions, treatments, age_int);
+        }
+
+        return true;
+    }
+
+    bool save_to_file()
+    {
+        ofstream file(_filename);
+
+        if (!file.is_open())
+        {
+            cout << "Could not open file " << _filename << "for writing records " << '\n';
+            return false;
+        }
+
+        for (auto patient : _all_patients)
+        {
+            file << patient->id << '\t' << "\"" << patient->_name << "\"" << '\t' << patient->_dob << '\t' << patient->_age << '\t';
+
+            for (int i = 0; i < patient->_med_conditions.size(); i++)
+            {
+                file << patient->_med_conditions[i];
+                if (i != patient->_med_conditions.size() - 1) file << ',';
+            }
+
+            file << '\t';
+
+            for (int i = 0; i < patient->_treatments.size(); i++)
+            {
+                file << patient->_treatments[i];
+                if (i != patient->_treatments.size() - 1) file << ',';
+            }
+
+            file << '\n';
+        }
+
+        return true;
+    }
+
+    void show_summary_statistics()
+    {
+        cout << "Number of patients by age group:\n";
+        for (auto it = _age_group.begin(); it != _age_group.end(); it++)
+        {
+            cout << "Age: " << it->first << ", Number of patients: " << it->second.size() << '\n';
+        }
+
+        cout << "\nNumber of patients by medical condition:\n";
+        for (auto it = _med_patients.begin(); it != _med_patients.end(); it++)
+        {
+            cout << "Medical Condition: " << it->first << ", Number of patients: " << it->second.size() << '\n';
+        }
+    }
+
+    void print_patient_report(int id)
+    { 
+        auto patient = _patients_id[id];
+
+        cout << "-------------------------------------------------------------------------\n";
+        cout << "Patient ID: " << patient->id << '\n';
+        cout << "Pateint Name: " << patient->_name << '\n';
+        cout << "Patient DOB: " << patient->_dob << '\n';
+        cout << "Patient Age: " << patient->_age << '\n';
+        cout << "Medical Conditions: ";
+        int count = 0;
+        for (int i = 0; i < patient->_med_conditions.size(); i++)
+        {
+            if (count % 2 == 0 && count != 0) cout << '\n';
+            cout << patient->_med_conditions[i];
+            if (i != patient->_med_conditions.size() - 1) cout << ", ";
+            count++;
+        }
+        cout << '\n';
+        count = 0;
+        cout << "Treatments: ";
+        for (int i = 0; i < patient->_treatments.size(); i++)
+        {
+            if (count % 2 == 0 && count != 0) cout << '\n';
+            cout << patient->_treatments[i];
+            if (i != patient->_treatments.size() - 1) cout << ", ";
+        }
+        cout << '\n';
+        cout << "-------------------------------------------------------------------------\n";
+    }
+
+    void update_patient()
+    {
+        cout << "Enter the ID of the patient you want to update: ";
+        int id;
+        cin >> id;
+        auto patient = _patients_id[id];
+
+        cout << "Enter the field you want to update (name/dob/age/conditions/treatments): ";
+        string field;
+        cin >> field;
+
+        if (field == "name")
+        {
+            cout << "Enter the new name: ";
+            string new_name;
+            cin.ignore();  // Ignore newline character left in buffer
+            getline(cin, new_name);
+
+            // Remove old name from patients map
+            _patients.erase(patient->_name);
+
+            // Update patient object
+            patient->_name = new_name;
+
+            // Add updated name to patients map
+            _patients[new_name] = patient;
+        }
+        else if (field == "dob")
+        {
+            cout << "Enter the new date of birth: ";
+            string new_dob;
+            cin >> new_dob;
+            patient->_dob = new_dob;
+        }
+        else if (field == "age")
+        {
+            cout << "Enter the new age: ";
+            int new_age;
+            cin >> new_age;
+
+            // Update age group map
+            _age_group[patient->_age].erase(remove(_age_group[patient->_age].begin(), _age_group[patient->_age].end(), patient),
+                                            _age_group[patient->_age].end());
+            patient->_age = new_age;
+            _age_group[new_age].push_back(patient);
+        }
+        else if (field == "conditions")
+        {
+            cout << "Enter the new medical condition: ";
+            string new_condition;
+            cin.ignore();  // Ignore newline character left in buffer
+            getline(cin, new_condition);
+
+            // Add new medical condition to patient
+            patient->add_med_condition(new_condition);
+        }
+        else if (field == "treatments")
+        {
+            cout << "Enter the new treatment: ";
+            string new_treatment;
+            cin.ignore();  // Ignore newline character left in buffer
+            getline(cin, new_treatment);
+
+            // Add new treatment to patient
+            patient->add_treatment(new_treatment);
+        }
+        else
+        {
+            cout << "Invalid field" << '\n';
+            return;
+        }
+
+        cout << "Patient with ID " << id << " updated successfully." << '\n';
+    }
+
+    void query_patients()
+    {
+        cout << "Enter number of parameters (1: age/name/id & 2: med condition/treatment) ";
+        int number;
+        cin >> number;
+
+        if (number == 1)
+        {
+            cout << "Enter param by which you want to query Age/ID/name: ";
+            string param;
+            cin >> param;
+
+            if (param == "Age" || param == "age")
+            {
+                int i, f;
+                cout << "Enter range(if you dont want query in range put both limit as same and both 0 for all): ";
+                cin >> i >> f;
+                query_by_age_range(i, f);
+            }
+            else if (param == "ID" || param == "id")
+            {
+                cout << "Enter ID: ";
+                int id;
+                cin >> id;
+                if (!search_id(id))
+                {
+                    cerr << "No person with such an ID exists\n";
+                    return;
+                }
+                cout << "\033[2J\033[1;1H";
+                print_patient_report(id);
+            }
+            else if (param == "Name" || param == "name")
+            {
+                cout << "Enter Name: ";
+                string name;
+                cin >> name;
+                print_patient_report(_patients[name]->id);
+            }
+            else
+            {
+                cerr << "Invalid parameter. Use Age, ID, or Name." << endl;
+            }
+        }
+        else if (number == 2)
+        {
+            cout << "Intersection(1)/Union(2): ";
+            int type;
+            cin >> type;
+            string param1, param2;
+            cout << "Enter param 1 (name of medical condition or treatment): ";
+            cin >> param1;
+            cout << "Enter param 2 (name of medical condition or treatment): ";
+            cin >> param2;
+            handle_query(type, param1, param2);
+        }
+        else
+        {
+            cerr << "Only 1 or 2 parameters are allowed\n";
+        }
+    }
+
+    void delete_patient(int id)
+    {
+        auto patient = _patients_id[id];
+        _patients_id.erase(id);
+        _patients.erase(patient->_name);
+        _age_group[patient->_age].erase(remove(_age_group[patient->_age].begin(), _age_group[patient->_age].end(), patient),
+                                        _age_group[patient->_age].end());
+        _all_patients.erase(remove(_all_patients.begin(), _all_patients.end(), patient), _all_patients.end());
+        for (const auto &med_condition : patient->_med_conditions)
+        {
+            _med_patients[med_condition].erase(
+                remove(_med_patients[med_condition].begin(), _med_patients[med_condition].end(), patient),
+                _med_patients[med_condition].end());
+        }
+    }
+
+    bool search_id(int id)
+    {
+        if (_patients_id.find(id) != _patients_id.end())
+        {
+            cout << "Patient with " << id << "already exists: " << '\n';
+            print_patient_report(id);
+            return true;
+        }
+        return false;
+    }
+
+private:
+    void query_by_age_range(int i, int f)
+    {
+        if (i == f && i != 0 && f != 0)
+        {
+            cout << "Number of patients with age " << i << " is " << _age_group[i].size() << '\n';
+
+            cout << "Patients with age " << i << " are:\n";
+            for (auto patient : _age_group[i])
+            {
+                cout << "ID: " << patient->id << ", Name: " << patient->_name << '\n';
+            }
+        }
+        else if (i == f && i == 0 && f == 0)
+        {
+            for (auto age : _age_group)
+            {
+                cout << "Number of patients with age " << age.first << " is " << age.second.size() << '\n';
+                cout << "Patients with age " << age.first << " are:\n";
+                for (auto patient : age.second)
+                {
+                    cout << "ID: " << patient->id << ", Name: " << patient->_name << '\n';
+                }
+            }
+        }
+        else
+        {
+            auto lower = _age_group.lower_bound(i);
+            auto upper = _age_group.upper_bound(f);
+
+            cout << "Patients aged between " << i << " and " << f << ":\n";
+            for (auto it = lower; it != upper; ++it)
+            {
+                for (const auto &patient : it->second)
+                {
+                    cout << "Age: " << patient->_age << "ID: " << patient->id << ", Name: " << patient->_name << "\n";
+                }
+            }
+        }
+    }
+
+    // Function to perform intersection or union queries based on parameters
+    void handle_query(int type, const string &param1, const string &param2)
+    {
+        vector<shared_ptr<Patient>> list1, list2;
+        // Fetch patients based on the first parameter (medical condition or treatment)
+        if (_med_patients.find(param1) != _med_patients.end())
+        {
+            list1 = _med_patients[param1];
+        }
+        else
+        {
+            // Assuming param1 is a treatment if not found as a medical condition
+            for (auto &patient : _all_patients)
+            {
+                if (find(patient->_treatments.begin(), patient->_treatments.end(), param1) != patient->_treatments.end())
+                {
+                    list1.push_back(patient);
+                }
+            }
+        }
+
+        // Fetch patients based on the second parameter (medical condition or treatment)
+        if (_med_patients.find(param2) != _med_patients.end())
+        {
+            list2 = _med_patients[param2];
+        }
+        else
+        {
+            // Assuming param2 is a treatment if not found as a medical condition
+            for (auto &patient : _all_patients)
+            {
+                if (find(patient->_treatments.begin(), patient->_treatments.end(), param2) != patient->_treatments.end())
+                {
+                    list2.push_back(patient);
+                }
+            }
+        }
+
+        vector<shared_ptr<Patient>> result;
+
+        // Perform intersection or union based on the type
+        if (type == 1)  // Intersection
+        {
+            unordered_set<shared_ptr<Patient>> set1(list1.begin(), list1.end());
+            for (auto &patient : list2)
+            {
+                if (set1.find(patient) != set1.end())
+                {
+                    result.push_back(patient);
+                }
+            }
+        }
+        else if (type == 2)  // Union
+        {
+            unordered_set<shared_ptr<Patient>> set1(list1.begin(), list1.end());
+            result = list1;
+            for (auto &patient : list2)
+            {
+                if (set1.find(patient) == set1.end())
+                {
+                    result.push_back(patient);
+                }
+            }
+        }
+        else
+        {
+            cerr << "Invalid query type. Use 1 for intersection, 2 for union." << endl;
+            return;
+        }
+
+        // Print the result
+        cout << "Query Results (" << (type == 1 ? "Intersection" : "Union") << " of \"" << param1 << "\" and \"" << param2 << "\"):\n";
+        for (const auto &patient : result)
+        {
+            cout << "ID: " << patient->id << ", Name: " << patient->_name << '\n';
+        }
+        if (result.empty())
+        {
+            cout << "No patients found with the given criteria.\n";
+        }
+    }
+};
+
+void pause()
+{
+    cout << "Press 'x' to exit...";
+    char x;
+    cin >> x;
+    if (x == 'x' || x == 'X')
+        return;
+    else
+        pause();
+}
+
+int main()
+{
+    Patient_records records("patients.txt");
+
+    // Load patients from file
+    if (!records.load_from_file())
+    {
+        cerr << "Failed to load patients from file." << endl;
+    }
+
+    int choice = 0;
+    while (choice != 7)
+    {
+        cout << "\033[2J\033[1;1H";
+        cout << "\n--- Patient Records Menu ---\n";
+        cout << "1. Add Patient\n";
+        cout << "2. Update Patient\n";
+        cout << "3. Delete Patient\n";
+        cout << "4. Query Patient\n";
+        cout << "5. Generate Report\n";
+        cout << "6. Summary Statistics\n";
+        cout << "7. Exit\n";
+        cout << "Enter your choice: ";
+        cin >> choice;
+
+        switch (choice)
+        {
+            case 1:
+            {
+                int id, age;
+                string name, dob, med_conditions_str, treatments_str;
+                vector<string> med_conditions, treatments;
+                cout << "Enter ID: ";
+                cin >> id;
+                if (records.search_id(id))
+                {
+                    pause();
+                    break;
+                }
+                cin.ignore();
+                cout << "Enter Name: ";
+                getline(cin, name);
+                cout << "Enter Date of Birth (dob): ";
+                getline(cin, dob);
+                cout << "Enter Age: ";
+                cin >> age;
+                cin.ignore();
+                cout << "Enter Medical Conditions (comma-separated): ";
+                getline(cin, med_conditions_str);
+                cout << "Enter Treatments (comma-separated): ";
+                getline(cin, treatments_str);
+
+                // Split the med_conditions_str and treatments_str by commas
+                istringstream med_iss(med_conditions_str);
+                string med_condition;
+                while (getline(med_iss, med_condition, ','))
+                {
+                    med_conditions.push_back(med_condition);
+                }
+
+                istringstream treat_iss(treatments_str);
+                string treatment;
+                while (getline(treat_iss, treatment, ','))
+                {
+                    treatments.push_back(treatment);
+                }
+
+                records.add_patient(id, name, dob, med_conditions, treatments, age);
+                cout << "Patient added successfully.\n";
+                pause();
+                break;
+            }
+            case 2:
+            {
+                cout << "\033[2J\033[1;1H";
+                records.update_patient();
+                pause();
+                break;
+            }
+            case 3:
+            {
+                cout << "\033[2J\033[1;1H";
+                int id;
+                cout << "Enter ID of the patient to delete: ";
+                cin >> id;
+                if (!records.search_id(id))
+                {
+                    cout << "Patient with ID " << id << " does not exist." << endl;
+                    pause();
+                    break;
+                }
+                records.delete_patient(id);
+                cout << "Patient deleted successfully.\n";
+                pause();
+                break;
+            }
+            case 4:
+            {
+                cout << "\033[2J\033[1;1H";
+                records.query_patients();
+                pause();
+                break;
+            }
+            case 5:
+            {
+                cout << "\033[2J\033[1;1H";
+                int id;
+                cout << "Enter Patient ID to generate report: ";
+                cin >> id;
+                if (records.search_id(id))
+                {
+                    pause();
+                    break;
+                }
+                records.print_patient_report(id);
+                pause();
+                break;
+            }
+            case 6:
+            {
+                cout << "\033[2J\033[1;1H";
+                records.show_summary_statistics();
+                pause();
+                break;
+            }
+            case 7:
+                cout << "Exiting...\n";
+                break;
+            default:
+                cout << "Invalid choice. Please try again.\n";
+                pause();
+                break;
+        }
+    }
+
+    // Save patients to file
+    if (!records.save_to_file())
+    {
+        cerr << "Failed to save patients to file." << endl;
+    }
+
+    return 0;
+}
